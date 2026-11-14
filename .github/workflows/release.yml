@@ -27,10 +27,20 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target VC3Launcher
       - name: Package
-        shell: pwsh
+        shell: powershell
         run: ./tools/package.ps1 -BuildDir build -Version "${{ github.ref_name }}"
+      # Release text: docs/releases/<tag>.md when it exists, otherwise GitHub's generated notes.
+      - name: Release notes
+        id: notes
+        shell: pwsh  # PowerShell 7 writes UTF-8 to GITHUB_OUTPUT (5.1 would write UTF-16)
+        run: |
+          $f = "docs/releases/${{ github.ref_name }}.md"
+          if (Test-Path $f) { "path=$f" >> $env:GITHUB_OUTPUT; "generate=false" >> $env:GITHUB_OUTPUT }
+          else { "" | Out-File notes.md; "path=notes.md" >> $env:GITHUB_OUTPUT; "generate=true" >> $env:GITHUB_OUTPUT }
       - uses: softprops/action-gh-release@v2
         with:
+          name: Valkyria Chronicles III Recompiled ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.path }}
           files: dist/*.zip
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          generate_release_notes: ${{ steps.notes.outputs.generate == 'true' }}
