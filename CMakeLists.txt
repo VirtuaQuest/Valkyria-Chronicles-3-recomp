@@ -19,6 +19,7 @@ set(VC2_GENERATED_DIR "" CACHE PATH "Developer use: directory with generated gam
 # ---------------------------------------------------------------- core library (no third-party deps)
 add_library(vc2core STATIC
   src/common/iso9660.cpp
+  src/common/inflate.cpp
   src/crypto/prx_decrypt.cpp
   src/loader/elf.cpp
   src/recomp/analysis.cpp

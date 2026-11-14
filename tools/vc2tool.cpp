@@ -2,6 +2,7 @@
 //   vc2tool info    <iso>
 //   vc2tool decrypt <iso> <disc path> <out.elf>   (copies a plain ELF out of the disc)
 //   vc2tool imports <iso>
+//   vc2tool hashes  <iso|cso>                     (SHA-1 of every file on the disc)
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -20,7 +21,7 @@
 using namespace vc2;
 
 static int usage() {
-    fprintf(stderr, "usage: vc2tool info|decrypt|imports <iso> [args]\n");
+    fprintf(stderr, "usage: vc2tool info|hashes|decrypt|imports <iso> [args]\n");
     return 1;
 }
 
@@ -40,6 +41,23 @@ int main(int argc, char** argv) {
             printf("title=%s id=%s ver=%s\n", s.get("TITLE").c_str(), s.get("DISC_ID").c_str(), s.get("DISC_VERSION").c_str());
         for (auto& [p, e] : iso.entries()) printf("%10u %8u %s%s\n", e.size, e.lba, p.c_str(), e.isDir ? "/" : "");
         return 0;
+    }
+    if (cmd == "hashes") {  // SHA-1 of every file: compare an .iso with a .cso of the same disc
+        printf("image %llu bytes%s\n", (unsigned long long)iso.totalSize(), iso.compressed() ? " (CSO)" : "");
+        int bad = 0;
+        for (auto& [p, e] : iso.entries()) {
+            if (e.isDir) continue;
+            Bytes data;
+            u8 h[20];
+            if (!iso.readFile(p, data) || !sha1(data.data(), data.size(), h)) {
+                printf("READ-ERROR %s\n", p.c_str());
+                bad++;
+                continue;
+            }
+            for (u8 b : h) printf("%02x", b);
+            printf(" %s\n", p.c_str());
+        }
+        return bad ? 1 : 0;
     }
     std::string path = cmd == "decrypt" && argc >= 4 ? argv[3] : "PSP_GAME/SYSDIR/EBOOT.OLD";
     if (const char* env = getenv("VC2_MODULE")) path = env;  // inspect another module (dev aid)

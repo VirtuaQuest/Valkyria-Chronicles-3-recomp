@@ -99,11 +99,11 @@ bool pickPath(HWND owner, bool folder, const fs::path& initial, fs::path& out) {
         d->SetOkButtonLabel(L"Use this folder");
     } else {
         opts |= FOS_FILEMUSTEXIST;
-        COMDLG_FILTERSPEC f[] = {{L"PSP disc images (*.iso)", L"*.iso"}, {L"All files (*.*)", L"*.*"}};
+        COMDLG_FILTERSPEC f[] = {{L"PSP disc images (*.iso, *.cso)", L"*.iso;*.cso"}, {L"All files (*.*)", L"*.*"}};
         d->SetFileTypes(2, f);
         d->SetFileTypeIndex(1);
         d->SetDefaultExtension(L"iso");
-        d->SetTitle(L"Select your game disc image (.iso)");
+        d->SetTitle(L"Select your game disc image (.iso or .cso)");
     }
     d->SetOptions(opts);
     std::error_code ec;
@@ -358,7 +358,7 @@ void App::drawDiscCard(ImVec2 size) {
             textColored(col::muted, isoBuf_[0] ? "No valid disc" : "No disc selected");
             ImGui::PopFont();
             if (!disc_.error.empty()) textWrappedColored(col::red, disc_.error.c_str());
-            else textWrappedColored(col::muted, "Choose the .iso image you dumped from your own UMD.");
+            else textWrappedColored(col::muted, "Choose the .iso or .cso image you dumped from your own UMD.");
         }
     }
     endCard();
@@ -611,7 +611,7 @@ void App::drawInstallTab() {
     if (beginCard("iso", ImVec2(leftW, rowH), col::amber, "Game disc image", "1")) {
         float bw = S(110);
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - S(10));
-        ImGui::InputTextWithHint("##iso", "Path to your .iso (drag & drop works too)", isoBuf_, sizeof isoBuf_);
+        ImGui::InputTextWithHint("##iso", "Path to your .iso or .cso (drag & drop works too)", isoBuf_, sizeof isoBuf_);
         if (ImGui::IsItemDeactivatedAfterEdit()) setIso(pathFromUtf8(isoBuf_));
         ImGui::SameLine();
         if (gradientButton("Browse...##iso", ImVec2(bw, ImGui::GetFrameHeight()), col::amber, col::coral)) {

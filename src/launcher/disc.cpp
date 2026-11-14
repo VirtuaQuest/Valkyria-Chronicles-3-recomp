@@ -21,8 +21,8 @@ DiscInfo probeDisc(const std::filesystem::path& isoPath) {
     vc2::IsoImage iso;
     std::string err;
     if (!iso.open(isoPath, &err)) {
-        d.error = "This file is not a readable ISO disc image (" + err + ").\nMake sure you selected an .iso dump "
-                  "of your UMD (CSO/CHD compressed images are not supported).";
+        d.error = "This file is not a readable disc image (" + err + ").\nSelect an .iso or .cso dump of your "
+                  "UMD (CHD images are not supported yet).";
         return d;
     }
     d.fileSize = iso.totalSize();

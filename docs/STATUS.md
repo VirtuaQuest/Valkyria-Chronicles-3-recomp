@@ -26,6 +26,7 @@ Windows 11, MSVC 14.44, GeForce GTX 1660 SUPER.
 | Area | State | How it was verified |
 |---|---|---|
 | Executable loading, analysis | ✅ complete | SHA-1 check of the executable; 18,610 functions (VC3), 0 unresolved jumps |
+| Disc images | ✅ | `.iso` and `.cso` (CISO v1, own deflate decoder): every file on the VC3 disc reads back bit-identical from a CSO (`vc2tool hashes`), and the game builds and plays from it |
 | MIPS → C translation | ✅ complete | every instruction handled (0 `psp_unhandled` sites); compiles warning-free |
 | Launcher | ✅ complete | full build 1:48, incremental ~4 s, cancel, icon, settings |
 | Kernel (threads, sync, memory, I/O) | ✅ working | game runs its 60 fps loop, streams from disc, creates and reloads saves |

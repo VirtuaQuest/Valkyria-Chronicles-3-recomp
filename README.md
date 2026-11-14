@@ -17,12 +17,13 @@ anisotropic filtering, texture upscaling, FXAA and an optional 60 FPS mode for b
 
 1. Dump your UMD to an `.iso` (for example with a PSP running custom firmware) and apply the
    English fan-translation patch to it. The recompilation uses the patch's decrypted
-   `SYSDIR/EBOOT.OLD`; unpatched Japanese discs are not supported yet.
+   `SYSDIR/EBOOT.OLD`; unpatched Japanese discs are not supported yet. Compressed `.cso`
+   images (CISO v1) work too and are read directly; CHD is not supported yet.
 2. Install the free **Visual Studio 2022 Build Tools** with the *Desktop development with C++*
    workload. The launcher uses it to compile the translated game.
 3. Download the latest `VC3Recompiled-<version>-Windows-x64.zip` from
    [Releases](https://github.com/VirtuaQuest/Valkyria-Chronicles-3-recomp/releases), unzip it and
-   run `VC3Launcher.exe`. Pick your ISO and an install folder and press **Recompile**. A progress
+   run `VC3Launcher.exe`. Pick your `.iso` or `.cso` and an install folder and press **Recompile**. A progress
    bar follows the steps: load → analyze → translate → compile → link. The first build takes
    a few minutes; later runtime updates only relink.
 4. Press **Play**.
