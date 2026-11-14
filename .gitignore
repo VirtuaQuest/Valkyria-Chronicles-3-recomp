@@ -1,0 +1,37 @@
+# Build output
+build/
+build-*/
+out/
+.vs/
+*.user
+
+# NEVER commit game data or anything derived from it.
+# The launcher extracts/derives these from the user's own disc at recompile time.
+*.iso
+*.cso
+*.pbp
+*.prx
+*.elf
+*.bin
+*.BIN
+*.PRX
+*.PMF
+*.AT3
+*.CPK
+*.AFS
+ICON0.PNG
+PIC0.PNG
+PIC1.PNG
+*.ico
+generated/
+gen/
+*.c.gen
+
+# Runtime / launcher user files
+memstick/
+vc2recomp.ini
+vc2recomp.log
+game.ini
+launcher.ini
+run.out
+dist/

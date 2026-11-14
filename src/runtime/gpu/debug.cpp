@@ -1,0 +1,252 @@
+// Debug facilities (all opt-in through environment variables):
+//   VC2_DUMP_DIR=dir        directory for frame dumps (PNG, window image without the overlay)
+//   VC2_DUMP_EVERY=N        dump every Nth presented frame (default 60 when VC2_DUMP_DIR is set)
+//   VC2_DUMP_AT=a,b,c       dump exactly these frame numbers
+//   VC2_INPUT=f:btn[:len],  press PSP buttons at given frames through a virtual SDL gamepad
+//                           (btn: cross circle square triangle start select up down left right l r)
+//                           "from-to/period:btn[:len]" repeats a press
+//   VC2_INPUT_AFTER=text[#n] start VC2_INPUT_THEN (same syntax, frames relative) once the n-th log
+//   VC2_INPUT_THEN=...       message containing `text` has been written
+//   VC2_GPU_STATS=N         log GE statistics every N frames
+#include <SDL3/SDL.h>
+#include <wincodec.h>
+#include <windows.h>
+
+#include <string>
+#include <thread>
+
+#include "../host/config.h"
+#include "../host/host.h"
+#include "gpu_internal.h"
+
+namespace vc2rt::gpu {
+
+namespace {
+std::string g_dumpDir;
+u64 g_dumpEvery = 0;
+std::vector<u64> g_dumpAt;
+u64 g_statsEvery = 0;
+
+struct InputEvent {
+    u64 frame;
+    int button;
+    u64 len;
+};
+std::vector<InputEvent> g_inputs;
+SDL_Joystick* g_vjoy = nullptr;
+SDL_JoystickID g_vjoyId = 0;
+
+std::string env(const char* n) {
+    char buf[4096];
+    DWORD r = GetEnvironmentVariableA(n, buf, sizeof buf);
+    return (r > 0 && r < sizeof buf) ? std::string(buf, r) : std::string();
+}
+
+int buttonFromName(const std::string& s) {
+    struct M {
+        const char* n;
+        int b;
+    } const map[] = {{"cross", SDL_GAMEPAD_BUTTON_SOUTH},        {"circle", SDL_GAMEPAD_BUTTON_EAST},
+                     {"square", SDL_GAMEPAD_BUTTON_WEST},        {"triangle", SDL_GAMEPAD_BUTTON_NORTH},
+                     {"start", SDL_GAMEPAD_BUTTON_START},        {"select", SDL_GAMEPAD_BUTTON_BACK},
+                     {"up", SDL_GAMEPAD_BUTTON_DPAD_UP},         {"down", SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+                     {"left", SDL_GAMEPAD_BUTTON_DPAD_LEFT},     {"right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+                     {"l", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},    {"r", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}};
+    for (auto& m : map)
+        if (s == m.n) return m.b;
+    return -1;
+}
+
+std::vector<std::string> split(const std::string& s, char c) {
+    std::vector<std::string> out;
+    size_t i = 0;
+    while (i <= s.size()) {
+        size_t j = s.find(c, i);
+        if (j == std::string::npos) j = s.size();
+        if (j > i) out.push_back(s.substr(i, j - i));
+        i = j + 1;
+    }
+    return out;
+}
+
+// VC2_INPUT_AFTER=text[#n] + VC2_INPUT_THEN=script: a second script whose frame numbers count from
+// the frame on which the n-th (default 1st) log message containing `text` was seen.
+std::vector<InputEvent> g_anchored;
+u32 g_anchorCount = 0;
+bool g_anchorFired = false;
+
+void parseScript(const std::string& spec, std::vector<InputEvent>& out) {
+    for (auto& item : split(spec, ',')) {
+        auto parts = split(item, ':');
+        if (parts.size() < 2) continue;
+        int b = buttonFromName(parts[1]);
+        if (b < 0) continue;
+        const u64 len = parts.size() > 2 ? (u64)std::stoull(parts[2]) : 6;
+        // "from-to/period:button[:len]" repeats a press, e.g. 300-20000/40:cross:4
+        const size_t dash = parts[0].find('-'), slash = parts[0].find('/');
+        if (dash != std::string::npos && slash != std::string::npos && slash > dash) {
+            u64 from = std::stoull(parts[0].substr(0, dash)), to = std::stoull(parts[0].substr(dash + 1, slash - dash - 1));
+            u64 period = std::max<u64>(1, std::stoull(parts[0].substr(slash + 1)));
+            for (u64 f = from; f <= to; f += period) out.push_back({f, b, len});
+            continue;
+        }
+        out.push_back({(u64)std::stoull(parts[0]), b, len});
+    }
+}
+
+void setupInput() {
+    parseScript(env("VC2_INPUT"), g_inputs);
+    std::string after = env("VC2_INPUT_AFTER");
+    if (!after.empty()) {
+        parseScript(env("VC2_INPUT_THEN"), g_anchored);
+        g_anchorCount = 1;
+        const size_t hash = after.rfind('#');
+        if (hash != std::string::npos) {
+            g_anchorCount = std::max(1, atoi(after.c_str() + hash + 1));
+            after.resize(hash);
+        }
+        logWatch(after);
+    }
+    if (g_inputs.empty() && g_anchored.empty()) return;
+    // the window usually has no focus in automated runs; SDL drops pad input otherwise
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+    desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+    desc.name = "VC2 scripted input";
+    g_vjoyId = SDL_AttachVirtualJoystick(&desc);
+    if (g_vjoyId) g_vjoy = SDL_OpenJoystick(g_vjoyId);
+    LOG_INFO("GPU", "scripted input: %zu events (virtual pad %s)", g_inputs.size(), g_vjoy ? "ok" : SDL_GetError());
+}
+
+void runInput() {
+    if (!g_vjoy) return;
+    if (!g_anchorFired && !g_anchored.empty() && logWatchHits() >= g_anchorCount) {
+        g_anchorFired = true;
+        LOG_INFO("GPU", "scripted input: anchor reached at frame %llu", (unsigned long long)g_frame);
+        for (auto e : g_anchored) {
+            e.frame += g_frame + 1;
+            g_inputs.push_back(e);
+        }
+    }
+    for (auto& e : g_inputs) {
+        if (g_frame == e.frame && !SDL_SetJoystickVirtualButton(g_vjoy, e.button, true))
+            LOG_WARN("GPU", "virtual button failed: %s", SDL_GetError());
+        if (g_frame == e.frame + 3) {
+            SDL_Gamepad* gp = SDL_GetGamepadFromID(g_vjoyId);
+            LOG_INFO("GPU", "scripted input: button %d held, pad buttons now %06x (joy btn %d, gamepad %p btn %d, mapping %s)",
+                     e.button, host::pad().buttons, SDL_GetJoystickButton(g_vjoy, e.button), (void*)gp,
+                     gp ? SDL_GetGamepadButton(gp, (SDL_GamepadButton)e.button) : -1,
+                     gp ? SDL_GetGamepadMapping(gp) : "none");
+        }
+        if (g_frame == e.frame + e.len) SDL_SetJoystickVirtualButton(g_vjoy, e.button, false);
+    }
+}
+}  // namespace
+
+void debugRequestDump(u64 frame) { g_dumpAt.push_back(frame); }
+
+bool savePng(const char* path, const u32* px, int w, int h, bool flipY, bool keepAlpha) {
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    IWICImagingFactory* f = nullptr;
+    IWICStream* st = nullptr;
+    IWICBitmapEncoder* enc = nullptr;
+    IWICBitmapFrameEncode* frame = nullptr;
+    bool ok = false;
+    std::wstring wpath(path, path + strlen(path));
+    std::vector<u8> bgra((size_t)w * h * 4);
+    for (int y = 0; y < h; y++) {
+        const u32* s = px + (size_t)(flipY ? h - 1 - y : y) * w;
+        u8* d = bgra.data() + (size_t)y * w * 4;
+        for (int x = 0; x < w; x++) {
+            u32 c = s[x];
+            d[x * 4 + 0] = (u8)(c >> 16);
+            d[x * 4 + 1] = (u8)(c >> 8);
+            d[x * 4 + 2] = (u8)c;
+            d[x * 4 + 3] = keepAlpha ? (u8)(c >> 24) : 255;
+        }
+    }
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&f))) &&
+        SUCCEEDED(f->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(wpath.c_str(), GENERIC_WRITE)) &&
+        SUCCEEDED(f->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) &&
+        SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) && SUCCEEDED(enc->CreateNewFrame(&frame, nullptr)) &&
+        SUCCEEDED(frame->Initialize(nullptr)) && SUCCEEDED(frame->SetSize(w, h))) {
+        WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
+        if (SUCCEEDED(frame->SetPixelFormat(&fmt)) &&
+            SUCCEEDED(frame->WritePixels(h, w * 4, (UINT)bgra.size(), bgra.data())) && SUCCEEDED(frame->Commit()) &&
+            SUCCEEDED(enc->Commit()))
+            ok = true;
+    }
+    if (frame) frame->Release();
+    if (enc) enc->Release();
+    if (st) st->Release();
+    if (f) f->Release();
+    return ok;
+}
+
+void debugInit() {
+    g_dumpDir = env("VC2_DUMP_DIR");
+    if (!g_dumpDir.empty()) {
+        CreateDirectoryA(g_dumpDir.c_str(), nullptr);
+        std::string every = env("VC2_DUMP_EVERY");
+        g_dumpEvery = every.empty() ? 60 : std::stoull(every);
+        for (auto& s : split(env("VC2_DUMP_AT"), ',')) g_dumpAt.push_back(std::stoull(s));
+        LOG_INFO("GPU", "frame dumps to %s (every %llu, %zu fixed)", g_dumpDir.c_str(), (unsigned long long)g_dumpEvery, g_dumpAt.size());
+    }
+    std::string st = env("VC2_GPU_STATS");
+    if (!st.empty()) g_statsEvery = std::max<u64>(1, std::stoull(st));
+    setupInput();
+}
+
+void debugFrame(int winW, int winH) {
+    runInput();
+    // VC2_SET_SCALE=frame:scale[,frame:scale] switches the internal resolution at runtime (testing)
+    static std::vector<std::pair<u64, int>> scaleSwitch = [] {
+        std::vector<std::pair<u64, int>> v;
+        for (auto& it : split(env("VC2_SET_SCALE"), ',')) {
+            auto p = split(it, ':');
+            if (p.size() == 2) v.push_back({std::stoull(p[0]), std::stoi(p[1])});
+        }
+        return v;
+    }();
+    for (auto& [f, sc] : scaleSwitch)
+        if (f == g_frame) config().internalScale = sc;
+    if (g_statsEvery && g_frame % g_statsEvery == 0) {
+        static u64 lastT = 0;
+        const u64 now = hostMicros();
+        const double fps = lastT ? g_statsEvery * 1e6 / (double)(now - lastT) : 0.0;
+        lastT = now;
+        const double n = (double)g_statsEvery;
+        LOG_INFO("GPU", "frame %llu (%.1f fps): per frame prims %.0f verts %.0f batches %.0f tex %.0f uploads %.1f fbsw %.1f xfers %.1f | lists %u done %u reentered %u deferred %u | cpu ge %.2fms (cb %.2f tex %.2f fb %.2f vtx %.2f) present %.2fms",
+                 (unsigned long long)g_frame, fps, g_stats.prims / n, g_stats.verts / n, g_stats.batches / n,
+                 g_stats.textures / n, g_stats.texUploads / n, g_stats.fbSwitches / n, g_stats.transfers / n, g_stats.lists, g_stats.finished, g_stats.reentered, g_stats.deferred,
+                 g_stats.geMicros / n / 1000.0, g_stats.cbMicros / n / 1000.0, g_stats.texMicros / n / 1000.0,
+                 g_stats.fbMicros / n / 1000.0, g_stats.vtxMicros / n / 1000.0, g_stats.presentMicros / n / 1000.0);
+        g_stats = GpuStats{};
+    }
+    if (g_dumpDir.empty()) return;
+    bool dump = g_dumpEvery && g_frame % g_dumpEvery == 0;
+    for (u64 f : g_dumpAt) dump |= f == g_frame;
+    if (!dump) return;
+    std::vector<u32> px((size_t)winW * winH);
+    const unsigned target = host::windowFramebuffer();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, target);
+    glReadBuffer(target ? GL_COLOR_ATTACHMENT0 : GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, winW, winH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    char path[1024];
+    snprintf(path, sizeof path, "%s\\frame_%06llu.png", g_dumpDir.c_str(), (unsigned long long)g_frame);
+    // Encode on a worker thread: a synchronous PNG encode stalls vblank and audio mixing on the host
+    // thread long enough to change the game's own timing (movies and boot sequences slow down).
+    std::thread([px = std::move(px), p = std::string(path), winW, winH]() {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (!savePng(p.c_str(), px.data(), winW, winH, true)) LOG_WARN("GPU", "could not write %s", p.c_str());
+        CoUninitialize();
+    }).detach();
+}
+
+}  // namespace vc2rt::gpu

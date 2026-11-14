@@ -1,0 +1,185 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Valkyria Chronicles III Recompiled",
+  "repo": "VirtuaQuest/Valkyria-Chronicles-3-recomp",
+  "game": {
+    "kind": "iso",
+    "label": "Your disc image (.iso) of Valkyria Chronicles III for PSP: the Japanese v1.01 release (ULJM-05781) with the English fan-translation patch applied. Unpatched Japanese discs are not supported yet.",
+    "check": { "iso9660": "UMD_DATA.BIN" }
+  },
+  "prepare": {
+    "program": ["VC3Launcher.exe"],
+    "args": ["--prepare", "--iso", "{game}", "--out", "{install}"],
+    "label": "Recompiling the game from your disc (needs the free Microsoft C++ Build Tools)",
+    "timeout": 3600
+  },
+  "start": {
+    "program": ["VC3Launcher.exe"],
+    "args": ["--play", "--iso", "{game}", "--out", "{install}"]
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [{ "path": "{install}/vc3recomp.ini" }]
+    }
+  ],
+  "saves": ["{install}/memstick/PSP/SAVEDATA", "{install}/vc3recomp.ini"],
+  "folders": {
+    "saves": [{ "path": "{install}/memstick/PSP/SAVEDATA" }],
+    "logs": [{ "path": "{install}" }]
+  },
+  "exit_codes": {
+    "20": "That disc image isn't a supported copy: it needs Valkyria Chronicles III (Japan v1.01, ULJM-05781) with the English fan-translation patch applied. Pick your copy on the game's page.",
+    "21": "The game is compiled on your PC with Microsoft's free C++ Build Tools, and they weren't found. Install Visual Studio 2022 Build Tools with \"Desktop development with C++\", then run the setup again.",
+    "22": "The game hasn't been built from your disc yet. Run the setup again on the game's page.",
+    "23": "The game has to be rebuilt after the update, and the rebuild was stopped. Press Play again and let it finish."
+  },
+  "looks": { "graphics": "opengl", "lines": 272 },
+  "settings": [
+    {
+      "id": "window", "label": "Window", "group": "Display",
+      "help": "Borderless fills your screen and lets you switch apps quickly. Fullscreen gives the game the screen to itself. F11 switches while playing.",
+      "choices": [
+        { "label": "Windowed", "set": { "Display/WindowMode": "0" } },
+        { "label": "Borderless", "set": { "Display/WindowMode": "1" } },
+        { "label": "Fullscreen", "set": { "Display/WindowMode": "2" } }
+      ],
+      "defaults": { "Display/WindowMode": "0" }
+    },
+    {
+      "id": "window_size", "label": "Window size", "group": "Display",
+      "help": "The size of the window when it isn't fullscreen.",
+      "choices": [
+        { "label": "960 x 544", "set": { "Display/WindowWidth": "960", "Display/WindowHeight": "544" } },
+        { "label": "1440 x 816", "set": { "Display/WindowWidth": "1440", "Display/WindowHeight": "816" } },
+        { "label": "1920 x 1088", "set": { "Display/WindowWidth": "1920", "Display/WindowHeight": "1088" } },
+        { "label": "2880 x 1632", "set": { "Display/WindowWidth": "2880", "Display/WindowHeight": "1632" } }
+      ],
+      "defaults": { "Display/WindowWidth": "1440", "Display/WindowHeight": "816", "Display/WindowMode": "0" },
+      "when": { "Display/WindowMode": "0" }
+    },
+    {
+      "id": "resolution", "label": "Resolution", "group": "Display",
+      "help": "What the game draws at. 1x is the PSP's own 480x272; 3D scenes get sharper as it goes up.",
+      "choices": [
+        { "label": "1x (PSP)", "set": { "Display/InternalScale": "1" } },
+        { "label": "2x", "set": { "Display/InternalScale": "2" } },
+        { "label": "3x", "set": { "Display/InternalScale": "3" } },
+        { "label": "4x (1080p)", "set": { "Display/InternalScale": "4" } },
+        { "label": "6x", "set": { "Display/InternalScale": "6" } },
+        { "label": "8x (4K)", "set": { "Display/InternalScale": "8" } }
+      ],
+      "defaults": { "Display/InternalScale": "3" }
+    },
+    {
+      "id": "aspect", "label": "Picture shape", "group": "Display",
+      "help": "Keep shows the PSP's 16:9 picture with bars where needed. Pixel perfect uses whole-number scaling.",
+      "choices": [
+        { "label": "Keep 16:9", "set": { "Display/Aspect": "0" } },
+        { "label": "Stretch", "set": { "Display/Aspect": "1" } },
+        { "label": "Pixel perfect", "set": { "Display/Aspect": "2" } }
+      ],
+      "defaults": { "Display/Aspect": "0" }
+    },
+    {
+      "id": "frame_rate", "label": "Frame rate", "group": "Display",
+      "help": "Battles and maps run at 30 FPS on the PSP. 60 FPS draws them twice as often at the same game speed. Experimental.",
+      "choices": [
+        { "label": "As on PSP", "set": { "Display/HighFrameRate": "0" } },
+        { "label": "60 FPS (experimental)", "set": { "Display/HighFrameRate": "1" } }
+      ],
+      "defaults": { "Display/HighFrameRate": "0" }
+    },
+    {
+      "id": "vsync", "label": "V-Sync", "group": "Display",
+      "help": "Waits for your screen's refresh so the picture never tears.",
+      "choices": [
+        { "label": "On", "set": { "Display/VSync": "1" } },
+        { "label": "Off", "set": { "Display/VSync": "0" } }
+      ],
+      "defaults": { "Display/VSync": "1" }
+    },
+    {
+      "id": "show_fps", "label": "Show FPS", "group": "Display",
+      "help": "The game's frame rate and the display's refresh in the corner.",
+      "choices": [
+        { "label": "Off", "set": { "Display/ShowFPS": "0" } },
+        { "label": "On", "set": { "Display/ShowFPS": "1" } }
+      ],
+      "defaults": { "Display/ShowFPS": "0" }
+    },
+    {
+      "id": "texture_filter", "label": "Texture filtering", "group": "Quality",
+      "help": "Smooth blends texture pixels; Sharp keeps them blocky like an emulator's nearest setting.",
+      "choices": [
+        { "label": "Smooth", "set": { "Display/TextureFilter": "1" } },
+        { "label": "Sharp", "set": { "Display/TextureFilter": "0" } }
+      ],
+      "defaults": { "Display/TextureFilter": "1" }
+    },
+    {
+      "id": "anisotropy", "label": "Anisotropic filtering", "group": "Quality",
+      "help": "Keeps ground textures sharp at shallow angles. Costs next to nothing.",
+      "choices": [
+        { "label": "Off", "set": { "Display/Anisotropy": "1" } },
+        { "label": "2x", "set": { "Display/Anisotropy": "2" } },
+        { "label": "4x", "set": { "Display/Anisotropy": "4" } },
+        { "label": "8x", "set": { "Display/Anisotropy": "8" } },
+        { "label": "16x", "set": { "Display/Anisotropy": "16" } }
+      ],
+      "defaults": { "Display/Anisotropy": "8" }
+    },
+    {
+      "id": "msaa", "label": "Anti-aliasing (MSAA)", "group": "Quality",
+      "help": "Smooths jagged edges in 3D scenes. Higher costs more graphics power.",
+      "choices": [
+        { "label": "Off", "set": { "Display/MSAA": "0" } },
+        { "label": "2x", "set": { "Display/MSAA": "2" } },
+        { "label": "4x", "set": { "Display/MSAA": "4" } },
+        { "label": "8x", "set": { "Display/MSAA": "8" } }
+      ],
+      "defaults": { "Display/MSAA": "0" }
+    },
+    {
+      "id": "fxaa", "label": "FXAA", "group": "Quality",
+      "help": "A light edge smoothing over the whole picture, menus included.",
+      "choices": [
+        { "label": "Off", "set": { "Display/FXAA": "0" } },
+        { "label": "On", "set": { "Display/FXAA": "1" } }
+      ],
+      "defaults": { "Display/FXAA": "0" }
+    },
+    {
+      "id": "texture_upscale", "label": "Texture upscaling", "group": "Quality",
+      "help": "Smooths the game's low-resolution textures and art as they load.",
+      "choices": [
+        { "label": "Off", "set": { "Display/TextureUpscale": "1" } },
+        { "label": "2x", "set": { "Display/TextureUpscale": "2" } },
+        { "label": "3x", "set": { "Display/TextureUpscale": "3" } },
+        { "label": "4x", "set": { "Display/TextureUpscale": "4" } }
+      ],
+      "defaults": { "Display/TextureUpscale": "1" }
+    },
+    {
+      "id": "volume", "label": "Volume", "group": "Sound",
+      "help": "Music, voices and effects together.",
+      "slider": { "key": "Audio/MasterVolume", "min": 0, "max": 100, "step": 5, "format": "%d" }
+    },
+    {
+      "id": "confirm", "label": "Confirm button", "group": "Controls",
+      "help": "Which controller button confirms in menus. A (bottom) is the PSP's USA layout.",
+      "choices": [
+        { "label": "A / Cross", "set": { "Input/SwapConfirm": "0" } },
+        { "label": "B / Circle", "set": { "Input/SwapConfirm": "1" } }
+      ],
+      "defaults": { "Input/SwapConfirm": "0" }
+    }
+  ],
+  "groups": [{ "id": "Display" }, { "id": "Quality" }, { "id": "Sound" }, { "id": "Controls" }],
+  "actions": [
+    { "id": "saves", "label": "Saves", "help": "Your save data.", "open": "saves" },
+    { "id": "logs", "label": "Logs", "help": "The game's log (vc3recomp.log) and settings file.", "open": "logs" }
+  ]
+}

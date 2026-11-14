@@ -1,0 +1,36 @@
+# Builds the launcher and runtime on a version tag (v1.2.3) and attaches the release zip, with
+# recomplauncher.json at its top, to the GitHub release. Tags with a "-" (v1.2.3-beta.1) become
+# pre-releases.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags and history for the build information
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build
+        env:
+          VC3_BUILD_VERSION: ${{ github.ref_name }}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target VC3Launcher
+      - name: Package
+        shell: pwsh
+        run: ./tools/package.ps1 -BuildDir build -Version "${{ github.ref_name }}"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
