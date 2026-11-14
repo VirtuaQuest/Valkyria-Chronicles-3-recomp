@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
-        if (a == "--iso") bo.iso = go.iso = pathFromUtf8(next());
+        if (a == "--iso" || a == "--game") bo.iso = go.iso = pathFromUtf8(next());
         else if (a == "--out") bo.outDir = go.out = pathFromUtf8(next());
         else if (a == "--build") build = true;
         else if (a == "--prepare") prepare = true;

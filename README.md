@@ -51,7 +51,19 @@ which ships at the top of every release. You still need the C++ Build Tools from
 Hotkeys: **F1** opens the settings overlay (or the gamepad Guide button), **F11** or
 **Alt+Enter** toggles fullscreen, and holding **`** (backquote) fast-forwards. Keys can be
 rebound in `vc3recomp.ini` or the launcher's settings tab. In the story map, **Select** opens the
-game's system menu (save, load, options).
+game's system menu (save, load, options). **Quit game** at the bottom of the F1 menu closes the
+game without a keyboard (open the menu with the controller's Guide button).
+
+In battle:
+
+| Mode | Buttons |
+|---|---|
+| Command mode (map) | ✕ select the unit under the cursor, □ unit list, △ commands, **START** ends your phase early |
+| Movement | analog stick moves, □ aims, ◯ crouches behind sandbags, △ swaps the camera, **START** ends the unit's action |
+| Aiming | analog stick moves the sights (aim for the head), ✕ fires, □ swaps weapons |
+
+When the game is started from RecompLauncher's Big Picture mode it opens in fullscreen for that
+session (F11 returns to your usual window mode).
 
 ## Graphics settings
 
@@ -70,7 +82,7 @@ game's system menu (save, load, options).
 | `VC3Recompiled.exe` | the game, built from your disc |
 | `vc3runtime.dll` | the PSP system re-implementation the game runs on |
 | `vc3recomp.ini` | settings (also edited by the launcher's Settings tab) |
-| `vc3recomp.log` | log of the last run; attach it to bug reports |
+| `vc3recomp.log` | log of the last run (`vc3recomp.1.log` and `.2.log` keep the two before); attach it to bug reports |
 | `memstick/PSP/SAVEDATA/` | your saves |
 
 ## Build information

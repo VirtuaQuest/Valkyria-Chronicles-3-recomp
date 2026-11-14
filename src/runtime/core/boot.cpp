@@ -66,6 +66,13 @@ static int boot(const Vc2GameImage* img, int argc, char** argv) {
     P.logFile = P.exeDir / "vc3recomp.log";
     P.saveDir = P.exeDir / "memstick";
     std::filesystem::create_directories(P.saveDir / "PSP" / "SAVEDATA");
+    {
+        // keep the logs of the previous two runs (vc3recomp.1.log, vc3recomp.2.log) for bug reports
+        std::error_code ec;
+        const auto old = [&](int n) { return P.exeDir / ("vc3recomp." + std::to_string(n) + ".log"); };
+        std::filesystem::rename(old(1), old(2), ec);
+        std::filesystem::rename(P.logFile, old(1), ec);
+    }
     logInit(P.logFile);
     config().load(P.configFile);
     if (config().logHle) {

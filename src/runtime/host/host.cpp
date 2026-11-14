@@ -30,6 +30,10 @@ PadState g_pad;
 bool g_fastForward = false;
 bool g_overlayOpen = false;
 bool g_quit = false;
+bool g_confirmQuit = false;  // overlay "Quit game" asked for confirmation
+// Started from RecompLauncher's Big Picture mode (controller, couch): borderless fullscreen for this
+// session only; vc3recomp.ini keeps the player's own window mode. F11 returns to it.
+bool g_sessionFullscreen = false;
 SDL_AudioStream* g_audio = nullptr;
 
 // presentation thread state (see swapBuffers)
@@ -230,6 +234,10 @@ bool init(const std::string& title) {
     SDL_GL_MakeCurrent(g_window, g_gl);
     if (!glLoadFunctions()) return false;
     LOG_INFO("HOST", "OpenGL %s / %s", (const char*)glGetString(GL_VERSION), (const char*)glGetString(GL_RENDERER));
+    if (const char* mode = getenv("RECOMPLAUNCHER_MODE"); mode && strcmp(mode, "bigpicture") == 0) {
+        g_sessionFullscreen = true;
+        LOG_INFO("HOST", "started from RecompLauncher Big Picture mode: fullscreen for this session");
+    }
     applyDisplaySettings();
     buildKeyMap();
 
@@ -259,7 +267,9 @@ void shutdown() {
 
 void applyDisplaySettings() {
     const Config& cfg = config();
-    switch (cfg.windowMode) {
+    const WindowMode mode = g_sessionFullscreen && cfg.windowMode == WindowMode::Windowed ? WindowMode::Borderless
+                                                                                         : cfg.windowMode;
+    switch (mode) {
         case WindowMode::Windowed: SDL_SetWindowFullscreen(g_window, false); break;
         case WindowMode::Borderless:
             SDL_SetWindowFullscreenMode(g_window, nullptr);
@@ -304,7 +314,8 @@ bool pumpEvents() {
                 if (e.key.scancode == SDL_SCANCODE_F11 ||
                     (e.key.scancode == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT))) {
                     Config& cfg = config();
-                    cfg.windowMode = cfg.windowMode == WindowMode::Windowed ? WindowMode::Borderless : WindowMode::Windowed;
+                    if (g_sessionFullscreen) g_sessionFullscreen = false;  // back to the player's window
+                    else cfg.windowMode = cfg.windowMode == WindowMode::Windowed ? WindowMode::Borderless : WindowMode::Windowed;
                     applyDisplaySettings();
                 }
                 break;
@@ -532,15 +543,17 @@ void overlayFrame() {
         ImGui::TextDisabled("Display %.1f Hz", displayHz);
         ImGui::End();
     }
+    if (!g_overlayOpen) g_confirmQuit = false;
     if (g_overlayOpen) {
         ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Settings (F1 to close)", &g_overlayOpen, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Begin("Settings (F1 / Guide button to close)", &g_overlayOpen, ImGuiWindowFlags_AlwaysAutoResize);
         bool changed = false;
         if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
             const char* modes[] = {"Windowed", "Borderless fullscreen", "Exclusive fullscreen"};
             int wm = (int)cfg.windowMode;
             if (ImGui::Combo("Window mode", &wm, modes, 3)) {
                 cfg.windowMode = (WindowMode)wm;
+                g_sessionFullscreen = false;
                 applyDisplaySettings();
                 changed = true;
             }
@@ -581,8 +594,20 @@ void overlayFrame() {
                 "Keyboard: WASD analog stick (hold Shift to walk slowly), arrows D-pad, Space/Enter = Cross, "
                 "Esc/Backspace = Circle, F = Square, R = Triangle, Q/E = L/R, Tab = Start, C = Select. "
                 "Hold ` (backquote) to fast-forward. F11 / Alt+Enter toggles fullscreen. Rebind keys in vc3recomp.ini.");
+            ImGui::TextWrapped(
+                "In battle: Square aims, Cross fires, Start ends the unit's action (and the phase in command mode), "
+                "Circle crouches behind sandbags, Triangle swaps the camera.");
         }
         ImGui::Separator();
+        // Quit without a keyboard (controller players open this menu with the Guide button)
+        if (!g_confirmQuit) {
+            if (ImGui::Button("Quit game")) g_confirmQuit = true;
+        } else {
+            ImGui::TextUnformatted("Quit the game? Progress since your last save is lost.");
+            if (ImGui::Button("Quit")) g_quit = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Keep playing")) g_confirmQuit = false;
+        }
         ImGui::TextDisabled("%s %s", vc2::buildInfo().product, vc2::buildInfoLine().c_str());
         if (changed) cfg.save(paths().configFile);
         ImGui::End();

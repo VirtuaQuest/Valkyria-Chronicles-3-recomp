@@ -63,6 +63,7 @@ Windows 11, MSVC 14.44, GeForce GTX 1660 SUPER.
 | `VC2_DUMP_DIR`, `VC2_DUMP_EVERY`, `VC2_DUMP_AT` | PNG frame dumps |
 | `VC2_INPUT=frame:button[:len],...` | scripted pad input (`from-to/period:button` repeats a press) |
 | `VC2_INPUT_AFTER=text[#n]`, `VC2_INPUT_THEN=...` | second input script, timed from the n-th log message containing `text` (e.g. a movie's duration) |
+| `VC2_INPUT_LIVE=file` | play interactively: the running game reads commands appended to `file` (`cross 6`, `wait 60`, `stick 0 -1 120`, `shot name` -> `<VC2_DUMP_DIR>/name.png`) |
 | `VC2_THREAD_DUMP=1` | log kernel thread states every 5 s (with CPU time, kernel calls and the last call per thread, and the scheduler's timer/idle time) |
 | `VC2_SYNC_PRESENT=1`, `VC2_PRESENT_CHECK=1` | swap on the emulation thread (old behaviour) / log the window image brightness every 300 swaps |
 | `VC2_AUDIO_DUMP`, `VC2_SAS_DUMP` | WAV dumps of the final mix and the SAS output |

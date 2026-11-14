@@ -7,11 +7,17 @@
 //                           "from-to/period:btn[:len]" repeats a press
 //   VC2_INPUT_AFTER=text[#n] start VC2_INPUT_THEN (same syntax, frames relative) once the n-th log
 //   VC2_INPUT_THEN=...       message containing `text` has been written
+//   VC2_INPUT_LIVE=file      play interactively: the running game reads commands appended to `file`
+//                           ("<btn> [len]", "wait <frames>", "stick <x> <y> <frames>" with -1..1,
+//                           "rstick ...", "shot <name>" -> <VC2_DUMP_DIR>/<name>.png); one per line
 //   VC2_GPU_STATS=N         log GE statistics every N frames
 #include <SDL3/SDL.h>
 #include <wincodec.h>
 #include <windows.h>
 
+#include <fstream>
+#include <map>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -29,9 +35,14 @@ u64 g_statsEvery = 0;
 
 struct InputEvent {
     u64 frame;
-    int button;
+    int button;  // SDL gamepad button, or -1 for an axis event
     u64 len;
+    int axis = -1;
+    Sint16 value = 0;
 };
+std::map<u64, std::string> g_namedDumps;  // frame -> file name (live input "shot")
+std::string g_liveFile;
+u64 g_liveOffset = 0;
 std::vector<InputEvent> g_inputs;
 SDL_Joystick* g_vjoy = nullptr;
 SDL_JoystickID g_vjoyId = 0;
@@ -107,7 +118,9 @@ void setupInput() {
         }
         logWatch(after);
     }
-    if (g_inputs.empty() && g_anchored.empty()) return;
+    g_liveFile = env("VC2_INPUT_LIVE");
+    if (!g_liveFile.empty()) std::ofstream(g_liveFile, std::ios::app).close();  // create it
+    if (g_inputs.empty() && g_anchored.empty() && g_liveFile.empty()) return;
     // the window usually has no focus in automated runs; SDL drops pad input otherwise
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     SDL_VirtualJoystickDesc desc;
@@ -123,8 +136,61 @@ void setupInput() {
     LOG_INFO("GPU", "scripted input: %zu events (virtual pad %s)", g_inputs.size(), g_vjoy ? "ok" : SDL_GetError());
 }
 
+// Reads commands appended to the VC2_INPUT_LIVE file since the last frame.
+void pollLiveInput() {
+    if (g_liveFile.empty() || g_frame % 4) return;
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!GetFileAttributesExA(g_liveFile.c_str(), GetFileExInfoStandard, &fa)) return;
+    const u64 size = ((u64)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
+    if (size < g_liveOffset) g_liveOffset = 0;  // file was truncated: start over
+    if (size == g_liveOffset) return;
+    std::ifstream f(g_liveFile, std::ios::binary);
+    f.seekg((std::streamoff)g_liveOffset);
+    std::string chunk((size_t)(size - g_liveOffset), '\0');
+    f.read(chunk.data(), (std::streamsize)chunk.size());
+    const size_t lastNl = chunk.rfind('\n');
+    if (lastNl == std::string::npos) return;  // wait for a complete line
+    g_liveOffset += lastNl + 1;
+    u64 at = g_frame + 1;
+    std::istringstream lines(chunk.substr(0, lastNl));
+    std::string line;
+    while (std::getline(lines, line)) {
+        std::istringstream w(line);
+        std::string cmd;
+        if (!(w >> cmd)) continue;
+        if (cmd == "wait") {
+            u64 n = 0;
+            w >> n;
+            at += n;
+        } else if (cmd == "stick" || cmd == "rstick") {
+            float x = 0, y = 0;
+            u64 n = 30;
+            w >> x >> y >> n;
+            const int ax = cmd == "stick" ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
+            const int ay = cmd == "stick" ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+            g_inputs.push_back({at, -1, n, ax, (Sint16)std::clamp(x * 32767.0f, -32767.0f, 32767.0f)});
+            g_inputs.push_back({at, -1, n, ay, (Sint16)std::clamp(y * 32767.0f, -32767.0f, 32767.0f)});
+            at += n;
+        } else if (cmd == "shot") {
+            std::string name;
+            w >> name;
+            g_namedDumps[at] = name.empty() ? "shot" : name;
+        } else if (int b = buttonFromName(cmd); b >= 0) {
+            u64 n = 6;
+            w >> n;
+            g_inputs.push_back({at, b, n});
+            at += n + 4;
+        } else {
+            LOG_WARN("GPU", "live input: unknown command '%s'", line.c_str());
+            continue;
+        }
+        LOG_INFO("GPU", "live input @%llu: %s", (unsigned long long)at, line.c_str());
+    }
+}
+
 void runInput() {
     if (!g_vjoy) return;
+    pollLiveInput();
     if (!g_anchorFired && !g_anchored.empty() && logWatchHits() >= g_anchorCount) {
         g_anchorFired = true;
         LOG_INFO("GPU", "scripted input: anchor reached at frame %llu", (unsigned long long)g_frame);
@@ -134,9 +200,14 @@ void runInput() {
         }
     }
     for (auto& e : g_inputs) {
+        if (e.axis >= 0) {
+            if (g_frame == e.frame) SDL_SetJoystickVirtualAxis(g_vjoy, e.axis, e.value);
+            if (g_frame == e.frame + e.len) SDL_SetJoystickVirtualAxis(g_vjoy, e.axis, 0);
+            continue;
+        }
         if (g_frame == e.frame && !SDL_SetJoystickVirtualButton(g_vjoy, e.button, true))
             LOG_WARN("GPU", "virtual button failed: %s", SDL_GetError());
-        if (g_frame == e.frame + 3) {
+        if (g_frame == e.frame + 3 && g_liveFile.empty()) {
             SDL_Gamepad* gp = SDL_GetGamepadFromID(g_vjoyId);
             LOG_INFO("GPU", "scripted input: button %d held, pad buttons now %06x (joy btn %d, gamepad %p btn %d, mapping %s)",
                      e.button, host::pad().buttons, SDL_GetJoystickButton(g_vjoy, e.button), (void*)gp,
@@ -231,7 +302,8 @@ void debugFrame(int winW, int winH) {
     if (g_dumpDir.empty()) return;
     bool dump = g_dumpEvery && g_frame % g_dumpEvery == 0;
     for (u64 f : g_dumpAt) dump |= f == g_frame;
-    if (!dump) return;
+    auto named = g_namedDumps.find(g_frame);
+    if (!dump && named == g_namedDumps.end()) return;
     std::vector<u32> px((size_t)winW * winH);
     const unsigned target = host::windowFramebuffer();
     glBindFramebuffer(GL_READ_FRAMEBUFFER, target);
@@ -239,7 +311,12 @@ void debugFrame(int winW, int winH) {
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
     glReadPixels(0, 0, winW, winH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
     char path[1024];
-    snprintf(path, sizeof path, "%s\\frame_%06llu.png", g_dumpDir.c_str(), (unsigned long long)g_frame);
+    if (named != g_namedDumps.end()) {
+        snprintf(path, sizeof path, "%s\\%s.png", g_dumpDir.c_str(), named->second.c_str());
+        g_namedDumps.erase(named);
+    } else {
+        snprintf(path, sizeof path, "%s\\frame_%06llu.png", g_dumpDir.c_str(), (unsigned long long)g_frame);
+    }
     // Encode on a worker thread: a synchronous PNG encode stalls vblank and audio mixing on the host
     // thread long enough to change the game's own timing (movies and boot sequences slow down).
     std::thread([px = std::move(px), p = std::string(path), winW, winH]() {
