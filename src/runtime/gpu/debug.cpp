@@ -9,7 +9,8 @@
 //   VC2_INPUT_THEN=...       message containing `text` has been written
 //   VC2_INPUT_LIVE=file      play interactively: the running game reads commands appended to `file`
 //                           ("<btn> [len]", "wait <frames>", "stick <x> <y> <frames>" with -1..1,
-//                           "rstick ...", "shot <name>" -> <VC2_DUMP_DIR>/<name>.png); one per line
+//                           "rstick ...", "shot <name>" -> <VC2_DUMP_DIR>/<name>.png, "trace on|off"
+//                           = HLE call log); one per line
 //   VC2_GPU_STATS=N         log GE statistics every N frames
 #include <SDL3/SDL.h>
 #include <wincodec.h>
@@ -21,6 +22,7 @@
 #include <string>
 #include <thread>
 
+#include "../hle/hle.h"
 #include "../host/config.h"
 #include "../host/host.h"
 #include "gpu_internal.h"
@@ -171,6 +173,12 @@ void pollLiveInput() {
             g_inputs.push_back({at, -1, n, ax, (Sint16)std::clamp(x * 32767.0f, -32767.0f, 32767.0f)});
             g_inputs.push_back({at, -1, n, ay, (Sint16)std::clamp(y * 32767.0f, -32767.0f, 32767.0f)});
             at += n;
+        } else if (cmd == "trace") {  // "trace on|off": HLE call log (debug level) while investigating
+            std::string v;
+            w >> v;
+            const bool on = v != "off";
+            setLogLevel(on ? LogLevel::Debug : LogLevel::Info);
+            hleSetTrace(on);
         } else if (cmd == "shot") {
             std::string name;
             w >> name;
@@ -220,6 +228,22 @@ void runInput() {
 }  // namespace
 
 void debugRequestDump(u64 frame) { g_dumpAt.push_back(frame); }
+
+// Reads the final window image and writes it as PNG on a worker thread: a synchronous encode
+// stalls vblank and audio mixing on the host thread long enough to change the game's own timing.
+void captureWindow(const char* path, int winW, int winH) {
+    std::vector<u32> px((size_t)winW * winH);
+    const unsigned target = host::windowFramebuffer();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, target);
+    glReadBuffer(target ? GL_COLOR_ATTACHMENT0 : GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, winW, winH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    std::thread([px = std::move(px), p = std::string(path), winW, winH]() {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (!savePng(p.c_str(), px.data(), winW, winH, true)) LOG_WARN("GPU", "could not write %s", p.c_str());
+        CoUninitialize();
+    }).detach();
+}
 
 bool savePng(const char* path, const u32* px, int w, int h, bool flipY, bool keepAlpha) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -302,28 +326,22 @@ void debugFrame(int winW, int winH) {
     if (g_dumpDir.empty()) return;
     bool dump = g_dumpEvery && g_frame % g_dumpEvery == 0;
     for (u64 f : g_dumpAt) dump |= f == g_frame;
-    auto named = g_namedDumps.find(g_frame);
-    if (!dump && named == g_namedDumps.end()) return;
-    std::vector<u32> px((size_t)winW * winH);
-    const unsigned target = host::windowFramebuffer();
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, target);
-    glReadBuffer(target ? GL_COLOR_ATTACHMENT0 : GL_BACK);
-    glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glReadPixels(0, 0, winW, winH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    if (!dump) return;
     char path[1024];
-    if (named != g_namedDumps.end()) {
-        snprintf(path, sizeof path, "%s\\%s.png", g_dumpDir.c_str(), named->second.c_str());
-        g_namedDumps.erase(named);
-    } else {
-        snprintf(path, sizeof path, "%s\\frame_%06llu.png", g_dumpDir.c_str(), (unsigned long long)g_frame);
-    }
-    // Encode on a worker thread: a synchronous PNG encode stalls vblank and audio mixing on the host
-    // thread long enough to change the game's own timing (movies and boot sequences slow down).
-    std::thread([px = std::move(px), p = std::string(path), winW, winH]() {
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (!savePng(p.c_str(), px.data(), winW, winH, true)) LOG_WARN("GPU", "could not write %s", p.c_str());
-        CoUninitialize();
-    }).detach();
+    snprintf(path, sizeof path, "%s\\frame_%06llu.png", g_dumpDir.c_str(), (unsigned long long)g_frame);
+    captureWindow(path, winW, winH);
+}
+
+// Named live-input screenshots are taken after the overlay (system dialogs such as the on-screen
+// keyboard, the settings menu) so they show exactly what the player sees.
+void debugAfterOverlay(int winW, int winH) {
+    if (g_dumpDir.empty()) return;
+    auto named = g_namedDumps.find(g_frame);
+    if (named == g_namedDumps.end()) return;
+    char path[1024];
+    snprintf(path, sizeof path, "%s\\%s.png", g_dumpDir.c_str(), named->second.c_str());
+    g_namedDumps.erase(named);
+    captureWindow(path, winW, winH);
 }
 
 }  // namespace vc2rt::gpu

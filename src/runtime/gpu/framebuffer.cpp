@@ -686,6 +686,7 @@ void fbPresent(u32 addr, u32 stride, u32 fmt) {
     }
     debugFrame(winW, winH);
     host::overlayFrame();
+    debugAfterOverlay(winW, winH);
     host::swapBuffers();
     invalidateGLStateCache();
     if (g_cur) {

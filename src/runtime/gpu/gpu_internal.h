@@ -125,6 +125,7 @@ void upscaleTexture(const u32* src, int w, int h, int factor, u32* dst);
 // ------------------------------------------------------------------ debug.cpp
 void debugInit();
 void debugFrame(int winW, int winH);  // frame dumps + scripted input, after the game image is drawn
+void debugAfterOverlay(int winW, int winH);  // named screenshots, after the overlay is drawn
 void debugRequestTrace(u64 frame);    // GE-trace this frame (ge_lists.cpp)
 void debugRequestDump(u64 frame);     // dump this frame if VC2_DUMP_DIR is set (debug.cpp)
 bool savePng(const char* path, const u32* rgba, int w, int h, bool flipY, bool keepAlpha = false);
